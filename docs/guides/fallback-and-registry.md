@@ -139,7 +139,8 @@ wrapper, and its `generateText` uses `doGenerate` rather than collecting a strea
 
 ## Observe candidate decisions
 
-`WithAttemptObserver` reports one decision per invoked candidate. Outcomes are
+The [model observer](https://pkg.go.dev/github.com/grafana/ai-sdk/fallback#Model.WithAttemptObserver)
+reports one decision per invoked candidate. Outcomes are
 `selected`, `failed`, and `canceled`; `WillFallback` is true only when a failed
 attempt is eligible to advance, another candidate exists, and the request is
 live at decision time. Later cancellation, including during the observer, may
@@ -151,7 +152,24 @@ Cancellation observable immediately after the decider returns takes precedence
 over its answer: the event is `canceled`, its error preserves the context cause,
 and `WillFallback` is false. After a failed decision to advance, later cancellation
 does not rewrite the event already delivered, but stops the next invocation and
-remains in the returned error chain.
+remains in the returned error chain. `SourceErr` separately preserves the owned
+candidate error before this cancellation substitution; it does not change the
+error returned to the caller.
+
+Use a [request-scoped observer](https://pkg.go.dev/github.com/grafana/ai-sdk/fallback#WithAttemptObserver)
+to collect decisions for one call without changing a shared model. It runs before
+and independently of the model observer. A child registration replaces inherited
+request observation; a nil callback disables it without affecting the model
+observer. Use separate contexts for independently captured calls and synchronize
+an accumulator if calls sharing that context can run concurrently.
+
+Request observation includes repeated SDK steps, retries and nested fallback
+calls using that context. Candidate indices restart per fallback invocation;
+this hook does not automatically group a trace or add provider metadata.
+Native source errors are in-process diagnostics and may contain credential
+echoes. Choose the fields your application publishes rather than serializing
+whole error trees. Observation and logger field policies do not rewrite values
+returned to the caller.
 
 For ordinary streaming, the finish timestamp is the selection decision time, not the
 end of the selected stream. With buffering, it is the complete stream decision time. Post-selection error events remain stream data.
